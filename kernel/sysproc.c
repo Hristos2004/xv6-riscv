@@ -6,6 +6,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "pstat.h"
 
 uint64
 sys_exit(void)
@@ -107,3 +108,25 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_getpinfo(void)
+{
+  uint64 up; // User pointer (η διεύθυνση που έδωσε το ps)
+  struct pstat kps; // Kernel pstat (η προσωρινή δομή στον πυρήνα)
+  struct proc *p = myproc();
+
+  // 1. Λήψη του ορίσματος (pointer) από τον χρήστη
+  argaddr(0, &up);
+
+  // 2. Κλήση της συνάρτησης που γεμίζει τη δομή (στο proc.c)
+  if(getpinfo(&kps) < 0)
+    return -1;
+
+  // 3. Αντιγραφή των δεδομένων από τον πυρήνα (kps) στον χρήστη (up)
+  if(copyout(p->pagetable, up, (char *)&kps, sizeof(kps)) < 0)
+    return -1;
+
+  return 0;
+}
+
