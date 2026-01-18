@@ -35,25 +35,24 @@ main(int argc, char *argv[])
 {
   struct pstat st;
 
+  // Λήψη pstat
   if (getpinfo(&st) < 0) {
     printf("Error: getpinfo failed\n");
     exit(1);
   }
 
-  // Ορισμός πλάτους στηλών (μπορείτε να τα αλλάξετε)
+  // Ακολουθεί ένας υπερβολικά περίπλοκος τρόπος εκτύπωσης ps
+
   int w_pid = 5;
   int w_ppid = 5;
   int w_name = 10;
   int w_prio = 9;
   int w_state = 10;
   int w_size = 8;
-  // Το τελευταίο πεδίο (TICKS) δεν χρειάζεται padding
 
-  // --- ΕΚΤΥΠΩΣΗ ΕΠΙΚΕΦΑΛΙΔΑΣ ---
   printf("PID  | PPID | NAME      | PRIORITY | STATE     | SIZE    | TICKS\n");
   printf("-----|------|-----------|----------|-----------|---------|------\n");
 
-  // --- ΕΚΤΥΠΩΣΗ ΔΕΔΟΜΕΝΩΝ ---
   for(int i = 0; i < st.num_proc; i++) {
     
     // 1. PID
@@ -80,7 +79,7 @@ main(int argc, char *argv[])
     printf("%d", (int)st.size[i]); // Cast σε int για απλότητα στην εκτύπωση
     print_padding(int_len((int)st.size[i]), w_size);
 
-    // 7. TICKS (Τελευταίο πεδίο, χωρίς padding και διαχωριστικό)
+    // 7. TICKS 
     printf("%d\n", st.ticks[i]);
   }
 

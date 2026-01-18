@@ -146,11 +146,8 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-  p->rtime = 0;
-  p->etime = 0;
-  p->ctime = ticks;
-  p->no_of_times_scheduled = 0;
 
+  // Αρχικοποίηση νέων πεδίων, κάθε διεργασία ξεκινάει με την ύψιστη προτεραιότητα 0
   p->entry_time = ticks;
   p->current_queue = 0;
   for (int i = 0; i < 4; i++)
@@ -368,7 +365,6 @@ kexit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
-  p->etime = ticks;
 
   release(&wait_lock);
 
@@ -426,6 +422,7 @@ kwait(uint64 addr)
   }
 }
 
+// Συνάρτηση η οποία καθορίζει το χρονομερίδιο κάθε διεργασίας με βάση την προτεραιότητα
 int
 get_time_slice(int priority)
 {
@@ -445,21 +442,30 @@ get_time_slice(int priority)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+
+// Mflq scheduler ο οποίος τρέχει διεργασίες με βάση την προτεραιότητά τους, 
+// την οποία αυξομειώνει με βάση τους χρόνους αναμονής και λειτουργίας ανάλογα
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+
   c->proc = 0;
-
   for(;;){
+    // The most recent process to run may have had interrupts
+    // turned off; enable them to avoid a deadlock if all
+    // processes are waiting. Then turn them back off
+    // to avoid a possible race between an interrupt
+    // and wfi.
     intr_on();
+    intr_off();
 
-    // --- Aging Logic (Κανόνας 11) ---
+    // Έλεγχος γήρανσης
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE && p->current_queue > 0) {
-        // Εδώ το entry_time είναι η στιγμή που έγινε RUNNABLE
+        // Για μεγάλη αναμονή, η προτεραιότητα αυξάνεται για αποφυγή λιμοκτονίας
         if ((ticks - p->entry_time) >= 10 * get_time_slice(p->current_queue)) {
            p->current_queue--; 
            p->queue_ticks[p->current_queue] = 0; // Reset ticks για το νέο queue
@@ -469,7 +475,7 @@ scheduler(void)
       release(&p->lock);
     }
 
-    // --- Επιλογή Διεργασίας (Priority + Round Robin) ---
+    // Επιλογή Διεργασίας (Priority + Round Robin)
     struct proc *chosenProc = 0;
     // Εύρεση της υψηλότερης προτεραιότητας που έχει RUNNABLE διεργασίες
     int min_queue = 4;
@@ -492,31 +498,31 @@ scheduler(void)
       if (chosenProc->state == RUNNABLE) {
         chosenProc->state = RUNNING;
         chosenProc->entry_time = ticks; // Καταγραφή ώρας έναρξης εκτέλεσης
-        chosenProc->no_of_times_scheduled++;
         
         c->proc = chosenProc;
         swtch(&c->context, &chosenProc->context);
         c->proc = 0;
 
-        // --- Επιστροφή από εκτέλεση ---
-        // Ενημέρωση των ticks που κατανάλωσε
-        // To ticks έχει προχωρήσει όσο έτρεχε η διεργασία
+        // Στην επιστροφή από εκτέλεση, ενημέρωση των ticks που κατανάλωσε
         uint duration = ticks - chosenProc->entry_time;
         chosenProc->queue_ticks[chosenProc->current_queue] += duration;
 
-        // --- Έλεγχος Υποβιβασμού (Demotion) ---
+        // Έλεγχος Υποβιβασμού (Demotion) 
         if (chosenProc->queue_ticks[chosenProc->current_queue] >= get_time_slice(chosenProc->current_queue)) {
             if (chosenProc->current_queue < 3) {
                 chosenProc->current_queue++;
                 chosenProc->queue_ticks[chosenProc->current_queue] = 0; // Reset στο νέο queue
             } else {
-                // Αν είναι ήδη στο 3, παραμένει εκεί, αλλά ίσως πρέπει να μηδενίσουμε τα ticks για Round Robin;
-                // Συνήθως στο RR, όταν τελειώσει το quantum, απλά μπαίνει τέλος της ουράς.
+                // Αν είναι ήδη στο 3, παραμένει εκεί, απλά μηδενίζω τα ticks 
                 chosenProc->queue_ticks[chosenProc->current_queue] = 0;
             }
         }
       }
       release(&chosenProc->lock);
+    }
+    else{
+      // nothing to run; stop running on this core until an interrupt.
+      asm volatile("wfi");
     }
   }
 }
@@ -549,6 +555,9 @@ sched(void)
 }
 
 // Give up the CPU for one scheduling round.
+
+// Τροποποιημένη yield ώστε να  παραδίνουν την cpu οι διεργασίες εαν ξεπεράσουν το χρονομερίδιό τους, 
+// ή υπάρχουν διεργασίες με υψηλότερη προτεραιότητα να δικαιούνται 
 void
 yield(void)
 {
@@ -566,18 +575,15 @@ yield(void)
   }
 
   // Υπολογισμός συνολικού χρόνου στο τρέχον queue (παλιά ticks + τρέχον burst)
-  // To entry_time εδώ είναι η στιγμή που άρχισε να τρέχει (από τον scheduler)
   int ticks_used = p->queue_ticks[p->current_queue] + (ticks - p->entry_time);
   int time_slice = get_time_slice(p->current_queue);
 
-  // Κανόνας 8: Κάνουμε yield ΜΟΝΟ αν υπάρχει ανώτερη διεργασία 
-  // Ή αν τελείωσε το χρονομερίδιο.
+  // Κάνουμε yield ΜΟΝΟ αν υπάρχει ανώτερη διεργασία ή αν τελείωσε το χρονομερίδιο με βάση την προτεραιότητα
   if(higher_priority_found || ticks_used >= time_slice) {
       p->state = RUNNABLE;
-      p->entry_time = ticks; // Ενημέρωση για το Aging
+      p->entry_time = ticks; // Reset entry time για μέτρηση ticks αναμονής 
       sched();
   }
-  // Αλλιώς, δεν κάνουμε τίποτα και συνεχίζουμε να τρέχουμε (επιστρέφουμε στο trap)
   
   release(&p->lock);
 }
@@ -662,7 +668,7 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
-        p->entry_time = ticks; // ΠΡΟΣΘΗΚΗ: Reset entry time for aging
+        p->entry_time = ticks; // Reset entry time για μέτρηση ticks αναμονής 
       }
       release(&p->lock);
     }
@@ -772,6 +778,7 @@ procdump(void)
   }
 }
 
+// Επιστρέφει δομή pstat με πληροφορίες για κάθε υπάρχουσα διεργασία
 int
 getpinfo(struct pstat *ps)
 {
@@ -781,29 +788,25 @@ getpinfo(struct pstat *ps)
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state != UNUSED) {
+      // Καταγραφή pid
       ps->pid[count] = p->pid;
       
-      // Προσοχή στα locks για τον γονέα
+      // Καταγραφή ppid
       if(p->parent) {
-        // Δεν μπορούμε εύκολα να πάρουμε το wait_lock εδώ χωρίς κίνδυνο deadlock
-        // αν κρατάμε ήδη το p->lock. Για την απλότητα της εργασίας, 
-        // ας υποθέσουμε ότι το p->parent είναι ασφαλές ή προσπελάστε το προσεκτικά.
-        // Το σωστότερο στο xv6 είναι να έχουμε το wait_lock αλλά 
-        // η σειρά κλειδώματος είναι wait_lock -> p->lock.
-        // Εδώ κρατάμε το p->lock. Απλά διαβάζουμε το pid του γονέα (αν υπάρχει).
         ps->ppid[count] = p->parent->pid;
       } else {
         ps->ppid[count] = 0;
       }
       
+      // Καταγραφή ονόματος
       safestrcpy(ps->p_name[count], p->name, sizeof(ps->p_name[count]));
       ps->priority[count] = p->current_queue;
       ps->size[count] = p->sz;
       
-      // Ticks στην τρέχουσα ουρά
+      // Καταγραφή ticks στην τρέχουσα ουρά
       ps->ticks[count] = p->queue_ticks[p->current_queue];
       
-      // Μετατροπή state σε string
+      // Καταγραφή state σε string
       switch(p->state) {
         case USED:     safestrcpy(ps->st_name[count], "USED", 16); break;
         case SLEEPING: safestrcpy(ps->st_name[count], "SLEEPING", 16); break;
@@ -817,6 +820,7 @@ getpinfo(struct pstat *ps)
     release(&p->lock);
   }
   
+  // Καταγραφή αριθμού διεργασιών
   ps->num_proc = count;
   return 0;
 }

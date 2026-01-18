@@ -25,7 +25,7 @@ int getpid(void);
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
-int getpinfo(struct pstat *);  // ΠΡΟΣΘΗΚΗ
+int getpinfo(struct pstat *);  // Νεα κλήση συστήματος getpinfo
 
 // ulib.c
 int stat(const char*, struct stat*);

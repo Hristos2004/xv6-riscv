@@ -42,4 +42,4 @@ entry("getpid");
 entry("sbrk");
 entry("pause");
 entry("uptime");
-entry("getpinfo");  # ΠΡΟΣΘΗΚΗ
+entry("getpinfo");  # Νεα κλήση συστήματος getpinfo

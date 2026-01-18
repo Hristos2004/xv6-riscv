@@ -105,13 +105,9 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 
-  uint rtime;                  // How long the process ran for
-  uint ctime;                  // When was the process created 
-  uint etime;                  // When did the process exited
-  uint no_of_times_scheduled;  // The number of times the process has been scheduled
-
-  uint entry_time;             // Entry time in the current queue
-  uint queue_ticks[4];         // Number of ticks done in each queue
-  uint current_queue;          // Current queue number of the process
+  // Νεα πεδία για mflq
+  uint entry_time;             // Αριθμός ticks προγράμματος όταν η διεργασία μπει σε καινούργια προτεραιότητα
+  uint queue_ticks[4];         // Αριθμός tick μέσα σε κάθε ουρά προτεραιότητας
+  uint current_queue;          // Τρέχουσα προτεραιότητα της διεργασίας
 
 };

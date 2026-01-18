@@ -125,6 +125,7 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 # http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
 .PRECIOUS: %.o
 
+# Νεα λειτουργία ps
 UPROGS=\
 	$U/_cat\
 	$U/_echo\
@@ -146,6 +147,7 @@ UPROGS=\
 	$U/_forphan\
 	$U/_dorphan\
 	$U/_ps\
+	$U/_stresstest\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
